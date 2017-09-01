@@ -44,6 +44,7 @@ func main() {
 	resource := flag.String("resource", "", "resource to generate")
 	version := flag.String("version", "v1", "api version to query")
 	ignore := flag.String("ignore", "", "comma-separated fields to ignore")
+	updatable := flag.Bool("updatable", false, "whether the resource supports update")
 	flag.Parse()
 
 	if *api == "" || *resource == "" {
@@ -79,7 +80,7 @@ func main() {
 		ig[strings.TrimSpace(s)] = struct{}{}
 	}
 
-	required, optional, computed := generateFields(resp.Schemas, *resource, ig)
+	required, optional, computed := generateFields(resp.Schemas, *resource, ig, *updatable)
 
 	buf := &bytes.Buffer{}
 	err = googleTemplate.Execute(buf, struct {
@@ -109,7 +110,7 @@ func main() {
 	}
 }
 
-func generateFields(jsonSchemas map[string]discovery.JsonSchema, property string, ignore map[string]struct{}) (required, optional, computed map[string]string) {
+func generateFields(jsonSchemas map[string]discovery.JsonSchema, property string, ignore map[string]struct{}, updatable bool) (required, optional, computed map[string]string) {
 	required = make(map[string]string, 0)
 	optional = make(map[string]string, 0)
 	computed = make(map[string]string, 0)
@@ -119,7 +120,7 @@ func generateFields(jsonSchemas map[string]discovery.JsonSchema, property string
 			continue
 		}
 
-		content, err := generateField(jsonSchemas, k, v, false)
+		content, err := generateField(jsonSchemas, k, v, false, updatable)
 		if err != nil {
 			log.Printf("ERROR: %s", err)
 		} else {
@@ -138,12 +139,12 @@ func generateFields(jsonSchemas map[string]discovery.JsonSchema, property string
 	return
 }
 
-func generateField(jsonSchemas map[string]discovery.JsonSchema, field string, v discovery.JsonSchema, isNested bool) (string, error) {
+func generateField(jsonSchemas map[string]discovery.JsonSchema, field string, v discovery.JsonSchema, isNested, isUpdatable bool) (string, error) {
 	s := &schema.Schema{
 		Description: v.Description,
 	}
 	if field != "" {
-		setProperties(v, s)
+		setProperties(v, s, isUpdatable)
 	}
 
 	// JSON field types: https://tools.ietf.org/html/draft-zyp-json-schema-03#section-5.1
@@ -158,7 +159,7 @@ func generateField(jsonSchemas map[string]discovery.JsonSchema, field string, v 
 		s.Type = schema.TypeBool
 	case "array":
 		s.Type = schema.TypeList
-		elem, err := generateField(jsonSchemas, "", *v.Items, true)
+		elem, err := generateField(jsonSchemas, "", *v.Items, true, isUpdatable)
 		if err != nil {
 			return "", fmt.Errorf("Unable to generate Elem for %q: %s", field, err)
 		}
@@ -170,7 +171,7 @@ func generateField(jsonSchemas map[string]discovery.JsonSchema, field string, v 
 		s.MaxItems = 1
 
 		elem := "&schema.Resource{\nSchema: map[string]*schema.Schema{\n"
-		required, optional, computed := generateFields(jsonSchemas, v.Ref, map[string]struct{}{})
+		required, optional, computed := generateFields(jsonSchemas, v.Ref, map[string]struct{}{}, isUpdatable)
 		elem += generateNestedElem(required)
 		elem += generateNestedElem(optional)
 		elem += generateNestedElem(computed)
@@ -187,7 +188,7 @@ func generateField(jsonSchemas map[string]discovery.JsonSchema, field string, v 
 	return schemaCode(s, isNested)
 }
 
-func setProperties(v discovery.JsonSchema, s *schema.Schema) {
+func setProperties(v discovery.JsonSchema, s *schema.Schema, updatable bool) {
 	if v.ReadOnly || strings.HasPrefix(v.Description, "Output-only") || strings.HasPrefix(v.Description, "[Output Only]") {
 		s.Computed = true
 	} else {
@@ -198,7 +199,7 @@ func setProperties(v discovery.JsonSchema, s *schema.Schema) {
 		}
 	}
 
-	s.ForceNew = true
+	s.ForceNew = !updatable
 }
 
 func generateNestedElem(fields map[string]string) (elem string) {
