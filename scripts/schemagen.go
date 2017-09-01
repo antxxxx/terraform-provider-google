@@ -43,6 +43,7 @@ func main() {
 	api := flag.String("api", "", "api to query")
 	resource := flag.String("resource", "", "resource to generate")
 	version := flag.String("version", "v1", "api version to query")
+	ignore := flag.String("ignore", "", "comma-separated fields to ignore")
 	flag.Parse()
 
 	if *api == "" || *resource == "" {
@@ -73,7 +74,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	required, optional, computed := generateFields(resp.Schemas, *resource)
+	ig := map[string]struct{}{}
+	for _, s := range strings.Split(*ignore, ",") {
+		ig[strings.TrimSpace(s)] = struct{}{}
+	}
+
+	required, optional, computed := generateFields(resp.Schemas, *resource, ig)
 
 	buf := &bytes.Buffer{}
 	err = googleTemplate.Execute(buf, struct {
@@ -103,12 +109,16 @@ func main() {
 	}
 }
 
-func generateFields(jsonSchemas map[string]discovery.JsonSchema, property string) (required, optional, computed map[string]string) {
+func generateFields(jsonSchemas map[string]discovery.JsonSchema, property string, ignore map[string]struct{}) (required, optional, computed map[string]string) {
 	required = make(map[string]string, 0)
 	optional = make(map[string]string, 0)
 	computed = make(map[string]string, 0)
 
 	for k, v := range jsonSchemas[property].Properties {
+		if _, ok := ignore[k]; ok {
+			continue
+		}
+
 		content, err := generateField(jsonSchemas, k, v, false)
 		if err != nil {
 			log.Printf("ERROR: %s", err)
@@ -160,7 +170,7 @@ func generateField(jsonSchemas map[string]discovery.JsonSchema, field string, v 
 		s.MaxItems = 1
 
 		elem := "&schema.Resource{\nSchema: map[string]*schema.Schema{\n"
-		required, optional, computed := generateFields(jsonSchemas, v.Ref)
+		required, optional, computed := generateFields(jsonSchemas, v.Ref, map[string]struct{}{})
 		elem += generateNestedElem(required)
 		elem += generateNestedElem(optional)
 		elem += generateNestedElem(computed)
