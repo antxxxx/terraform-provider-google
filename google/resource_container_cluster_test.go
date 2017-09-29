@@ -727,7 +727,7 @@ data "google_container_engine_versions" "central1a" {
 resource "google_container_cluster" "with_version" {
 	name = "cluster-test-%s"
 	zone = "us-central1-a"
-	node_version = "${data.google_container_engine_versions.central1a.latest_node_version}"
+	node_version = "${data.google_container_engine_versions.central1a.latest_master_version}"
 	initial_node_count = 1
 
 	master_auth {
