@@ -5,54 +5,59 @@ import (
 	"fmt"
 	"go/ast"
 	"go/format"
-	"go/parser"
-	"go/token"
 	"html/template"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/hashicorp/terraform/helper/schema"
+	g "github.com/terraform-providers/terraform-provider-google/google"
 )
 
 func main() {
 	fmt.Println("hey")
-	fileName := os.Args[1]
 
-	fs := token.NewFileSet()
-	parsedFile, err := parser.ParseFile(fs, fileName, nil, 0)
-	if err != nil {
-		log.Fatalf("parsing file %s: %s", fileName, err)
-	}
+	resourceName := os.Args[1]
+	sch := g.Provider().(*schema.Provider).ResourcesMap[resourceName].Schema
+	// log.Printf("%+v\n", sch)
 
-	resName := strings.TrimPrefix(fileName, "resource_compute_")
-	resName = strings.TrimSuffix(resName, ".go")
-	outputFileName := fmt.Sprintf("%s_%s.go", "compute", resName)
+	outputFileName := strings.TrimPrefix(resourceName, "google_") + ".go"
 	f, err := os.Create(outputFileName)
 	defer f.Close()
-	if err != nil {
-		log.Fatal(err)
-	}
 
 	result := []*bytes.Buffer{}
-	for _, v := range parsedFile.Scope.Objects {
-		s := v.Decl.(*ast.FuncDecl).Type.Results.List
-		if len(s) != 1 {
-			continue
-		}
-		if fmt.Sprintf("%T", s[0].Type) != "*ast.StarExpr" {
-			continue
-		}
-		l := s[0].Type.(*ast.StarExpr)
-		x := l.X.(*ast.SelectorExpr)
+	for k, v := range sch {
+		if nestedResource, ok := v.Elem.(*schema.Resource); ok {
+			schema := Schema{
+				Api:      "compute",
+				TypeName: camel(k), //"BackendService",
+			}
 
-		if !(x.X.(*ast.Ident).Name == "schema" && x.Sel.Name == "Resource") {
-			continue
+			for fieldName, fieldSchema := range nestedResource.Schema {
+				field := Field{
+					SchemaFieldName: fieldName,
+					ApiFieldName:    camel(fieldName),
+					Type:            parseType(fieldSchema.Type.String()),
+				}
+				if fieldSchema.Required {
+					schema.ReqFields = append(schema.ReqFields, field)
+				} else if fieldSchema.Optional {
+					schema.OptFields = append(schema.OptFields, field)
+				}
+			}
+
+			expander := bytes.NewBuffer([]byte{})
+			tpl := expanderOutline
+			if v.MaxItems != 1 {
+				tpl = expanderOutlinePlural
+			}
+			err := template.Must(template.New("expander").Parse(tpl)).Execute(expander, schema)
+			if err != nil {
+				log.Fatalf("error with expander template for %s: %s", k, err)
+			}
+			result = append(result, expander)
 		}
-
-		result = parseResourceFn(v.Decl.(*ast.FuncDecl).Body)
-		break
-
-		// fmt.Println()
 	}
 
 	fmtd, err := format.Source(result[0].Bytes())
@@ -64,6 +69,55 @@ func main() {
 	if _, err := f.Write(fmtd); err != nil {
 		log.Fatal(err)
 	}
+
+	// fileName := os.Args[1]
+
+	// fs := token.NewFileSet()
+	// parsedFile, err := parser.ParseFile(fs, fileName, nil, 0)
+	// if err != nil {
+	// 	log.Fatalf("parsing file %s: %s", fileName, err)
+	// }
+
+	// resName := strings.TrimPrefix(fileName, "resource_compute_")
+	// resName = strings.TrimSuffix(resName, ".go")
+	// outputFileName := fmt.Sprintf("%s_%s.go", "compute", resName)
+	// f, err := os.Create(outputFileName)
+	// defer f.Close()
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	// result := []*bytes.Buffer{}
+	// for _, v := range parsedFile.Scope.Objects {
+	// 	s := v.Decl.(*ast.FuncDecl).Type.Results.List
+	// 	if len(s) != 1 {
+	// 		continue
+	// 	}
+	// 	if fmt.Sprintf("%T", s[0].Type) != "*ast.StarExpr" {
+	// 		continue
+	// 	}
+	// 	l := s[0].Type.(*ast.StarExpr)
+	// 	x := l.X.(*ast.SelectorExpr)
+
+	// 	if !(x.X.(*ast.Ident).Name == "schema" && x.Sel.Name == "Resource") {
+	// 		continue
+	// 	}
+
+	// 	result = parseResourceFn(v.Decl.(*ast.FuncDecl).Body)
+	// 	break
+
+	// 	// fmt.Println()
+	// }
+
+	// fmtd, err := format.Source(result[0].Bytes())
+	// if err != nil {
+	// 	log.Printf("Formatting error: %s", err)
+	// 	fmtd = result[0].Bytes()
+	// }
+
+	// if _, err := f.Write(fmtd); err != nil {
+	// 	log.Fatal(err)
+	// }
 }
 
 func parseResourceFn(resourceFn *ast.BlockStmt) []*bytes.Buffer {

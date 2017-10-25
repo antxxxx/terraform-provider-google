@@ -484,4 +484,4 @@ func resourceGoogleComputeBackendServiceBackendHash(v interface{}) int {
 	return hashcode.String(buf.String())
 }
 
-//go:generate generators resource_compute_backend_service.go
+//go:generate generators google_compute_backend_service
