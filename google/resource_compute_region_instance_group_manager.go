@@ -5,6 +5,7 @@ import (
 	"github.com/hashicorp/terraform/helper/validation"
 
 	"fmt"
+
 	computeBeta "google.golang.org/api/compute/v0.beta"
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/googleapi"
@@ -135,6 +136,16 @@ func resourceComputeRegionInstanceGroupManager() *schema.Resource {
 }
 
 func resourceComputeRegionInstanceGroupManagerCreate(d *schema.ResourceData, meta interface{}) error {
+	getok, getokexists := false, false
+	if _, ok := d.GetOk("target_size"); ok {
+		getok = true
+	}
+
+	if _, ok := d.GetOkExists("target_size"); ok {
+		getokexists = true
+	}
+	return fmt.Errorf("GetOk: %v, GetOkExists: %v", getok, getokexists)
+
 	computeApiVersion := getComputeApiVersion(d, RegionInstanceGroupManagerBaseApiVersion, RegionInstanceGroupManagerVersionedFeatures)
 	config := meta.(*Config)
 
