@@ -47,6 +47,9 @@ type Config struct {
 	Region      string
 	Zone        string
 
+	client    *http.Client
+	userAgent string
+
 	clientBilling                *cloudbilling.Service
 	clientCompute                *compute.Service
 	clientComputeBeta            *computeBeta.Service
@@ -287,6 +290,9 @@ func (c *Config) loadAndValidate() error {
 		return err
 	}
 	c.clientDataproc.UserAgent = userAgent
+
+	c.client = client
+	c.userAgent = userAgent
 
 	return nil
 }
