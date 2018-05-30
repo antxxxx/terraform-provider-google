@@ -189,7 +189,15 @@ func getApiServices(pid string, config *Config, ignore map[string]struct{}) ([]s
 	// Get services from the API
 	token := ""
 	for paginate := true; paginate; {
-		svcResp, err := config.clientServiceUsage.Services.List("projects/" + pid).PageToken(token).Filter("state:ENABLED").Do()
+		var svcResp *serviceusage.ListServicesResponse
+		var rerr error
+		err := retryTime(func() error {
+			svcResp, rerr = config.clientServiceUsage.Services.List("projects/" + pid).PageToken(token).Filter("state:ENABLED").Do()
+			if rerr != nil {
+				return rerr
+			}
+			return nil
+		}, 10)
 		if err != nil {
 			return apiServices, err
 		}
